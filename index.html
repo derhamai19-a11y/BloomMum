@@ -1582,6 +1582,19 @@
         <div class="water-drops" id="waterDrops" role="group" aria-label="Water intake — tap to fill, long-press to remove"></div>
       </section>
 
+      <!-- Steps section -->
+      <section class="section-card" id="stepsSection">
+        <div class="section-header">
+          <h3 class="section-title">Steps</h3>
+        </div>
+        <div class="steps-entry">
+          <input type="number" id="stepsInput" class="form-input"
+            inputmode="numeric" min="0" max="99999" placeholder="e.g. 2000" />
+          <button class="btn btn-ghost btn-sm" id="saveStepsBtn">Save</button>
+        </div>
+        <div id="stepsDisplay" class="section-meta"></div>
+      </section>
+
       <!-- Sleep section -->
       <section class="section-card" id="sleepSection">
         <div class="section-header">
@@ -2000,6 +2013,7 @@
       features: { symptoms: false },
       targets: {
         calories: { max: 1500 },
+        steps:    { min: 2000 },
         water_ml: { min: 2000 }
       },
       profile: { name: '', age: 59, weight_kg: 88.5, height_cm: 160 }
@@ -2098,9 +2112,10 @@
         meds_taken: false,
         bp: [],
         mood: { mood: null, energy: null, pain: null },
+        steps: null,
         sleep: { asleepAt: '', wokeAt: '', wokeBy9am: false },
         symptoms: { back_pain: null, urine_colour: null, urine_dip: null },
-        petal_bloom: { calories: 0, meds: 0, water: 0, wake: 0 }
+        petal_bloom: { calories: 0, steps: 0, water: 0, wake: 0 }
       });
     }
 
@@ -2109,7 +2124,7 @@
     /* ─── Petal bloom (persisted, ceiling model) ─────────── */
     function recomputePetalBloom(day) {
       const t = loadSettings().targets;
-      const bloom = { calories: 0, meds: 0, water: 0, wake: 0 };
+      const bloom = { calories: 0, steps: 0, water: 0, wake: 0 };
       let totCal = 0;
 
       for (const meal of day.meals) {
@@ -2117,7 +2132,7 @@
       }
 
       bloom.calories = Math.min(1, Math.max(0, totCal / (t.calories.max || 1500)));
-      bloom.meds     = day.meds_taken ? 1 : 0;
+      bloom.steps    = Math.min(1, Math.max(0, (day.steps || 0) / (t.steps.min || 2000)));
       bloom.water    = Math.min(1, Math.max(0, (day.water_ml || 0) / (t.water_ml.min || 2000)));
       bloom.wake     = day.sleep?.wokeBy9am ? 1 : 0;
 
@@ -2220,7 +2235,8 @@
       if (totals) {
         const totCal = day.meals.reduce((s, m) => s + (m.estimates?.calories  || 0), 0);
         const totPro = day.meals.reduce((s, m) => s + (m.estimates?.protein_g || 0), 0);
-        totals.textContent = `${totCal.toLocaleString()} kcal · ${totPro}g protein`;
+        const totUnits = day.meals.reduce((s, m) => s + (m.estimates?.units || 0), 0);
+        totals.textContent = `${totCal.toLocaleString()} kcal · ${totPro}g protein · ${totUnits} units`;
       }
 
       list.innerHTML = day.meals.map(meal => {
@@ -2965,24 +2981,24 @@
     // Map of goal keys to their DOM ids
     const SF_GOALS = [
       { key: 'calories', pathId: 'sfGoalCaloriesPath', veinId: 'sfGoalCaloriesVein', hlId: 'sfGoalCaloriesHighlight' },
-      { key: 'meds',     pathId: 'sfGoalProteinPath',  veinId: 'sfGoalProteinVein',  hlId: 'sfGoalProteinHighlight'  },
+      { key: 'steps',    pathId: 'sfGoalProteinPath',  veinId: 'sfGoalProteinVein',  hlId: 'sfGoalProteinHighlight'  },
       { key: 'water',    pathId: 'sfGoalWaterPath',    veinId: 'sfGoalWaterVein',    hlId: 'sfGoalWaterHighlight'    },
       { key: 'wake',     pathId: 'sfGoalSaltPath',     veinId: 'sfGoalSaltVein',     hlId: 'sfGoalSaltHighlight'     },
     ];
 
     function updateSunflowerSVG(day) {
       const t      = loadSettings().targets;
-      const pb     = day.petal_bloom || { calories: 0, meds: 0, water: 0, wake: 0 };
+      const pb     = day.petal_bloom || { calories: 0, steps: 0, water: 0, wake: 0 };
       const waterB = Math.min(1, (day.water_ml || 0) / (t.water_ml.min || 2000));
       const meds   = !!day.meds_taken;
       const treat  = !!day.isTreatDay;
 
       // Bloom fractions by goal key (treat day = full bloom on everything)
       const blooms = treat
-        ? { calories: 1, meds: 1, water: 1, wake: 1 }
+        ? { calories: 1, steps: 1, water: 1, wake: 1 }
         : {
             calories: Math.max(0, Math.min(1, pb.calories || 0)),
-            meds:     Math.max(0, Math.min(1, pb.meds     || 0)),
+            steps:    Math.max(0, Math.min(1, pb.steps    || 0)),
             water:    Math.max(0, Math.min(1, pb.water    || waterB)),
             wake:     Math.max(0, Math.min(1, pb.wake     || 0)),
           };
@@ -3079,7 +3095,9 @@
     function updateGoalLabels(day, t, treat) {
       const meals  = day.meals || [];
       const totCal  = meals.reduce((s, m) => s + (m.estimates?.calories  || 0), 0);
+      const steps   = day.steps != null ? day.steps : 0;
       const medsTaken = day.meds_taken ? 'Yes' : 'No';
+      const totalUnits = meals.reduce((s, m) => s + (m.estimates?.units || 0), 0);
       const wL      = ((day.water_ml || 0) / 1000).toFixed(1);
       const tgtL    = ((t.water_ml.min || 2000) / 1000).toFixed(1);
       const wakeOk  = day.sleep?.wokeBy9am ? 'Yes' : 'No';
@@ -3094,8 +3112,8 @@
            t.calories.max.toLocaleString(), 'kcal');
 
       document.getElementById('goalLabelProtein').innerHTML =
-        mk('Meds', treat ? '—' : medsTaken,
-           'Yes', 'taken');
+        mk('Steps', treat ? '—' : steps.toLocaleString(),
+           String(t.steps.min), 'steps');
 
       document.getElementById('goalLabelWater').innerHTML =
         mk('Water', treat ? '—' : wL, tgtL, 'litres');
@@ -3190,6 +3208,27 @@
     });
 
     waterDropsEl.addEventListener('contextmenu', e => e.preventDefault());
+
+    function renderSteps(day) {
+      const input = document.getElementById('stepsInput');
+      const display = document.getElementById('stepsDisplay');
+      const saved = Number(day.steps || 0);
+      input.value = saved > 0 ? saved : '';
+      display.textContent = saved > 0 ? `${saved.toLocaleString()} steps logged today` : 'No steps logged yet.';
+      input.disabled = !isViewingToday();
+      document.getElementById('saveStepsBtn').disabled = !isViewingToday();
+    }
+
+    document.getElementById('saveStepsBtn').addEventListener('click', () => {
+      if (!isViewingToday()) return;
+      const input = document.getElementById('stepsInput');
+      const steps = Math.max(0, Math.min(99999, Number(input.value) || 0));
+      const day = loadDay(isoToday());
+      day.steps = steps;
+      saveDay(day);
+      renderSteps(day);
+      updateSunflowerSVG(day);
+    });
 
     /* ─── Meds ────────────────────────────────────────────── */
     function renderMeds(day) {
@@ -3359,11 +3398,14 @@
           return (r.meals?.length > 0)
               && r.meds_taken
               && (r.water_ml || 0) >= (t.water_ml.min || 2000)
+              && (r.steps || 0) >= (t.steps.min || 2000)
               && (r.sleep?.wokeBy9am)
               && d.cal <= (t.calories.max || Infinity);
         }),
         calories: computeStreak((r, t) =>
           (r.meals?.length > 0) && dayTotals(r).cal <= (t.calories.max || Infinity)),
+        steps:    computeStreak((r, t) =>
+          (r.steps || 0) >= (t.steps.min || 2000)),
         water:    computeStreak((r, t) =>
           (r.water_ml || 0) >= (t.water_ml.min || 2000)),
         meds:     computeStreak(r => !!r.meds_taken),
@@ -3396,6 +3438,7 @@
       // Five per-metric boxes
       const metrics = [
         { key: 'calories', label: 'Cal',   days: s.calories },
+        { key: 'steps',    label: 'Steps', days: s.steps    },
         { key: 'water',    label: 'H₂O',   days: s.water    },
         { key: 'meds',     label: 'Meds',  days: s.meds     },
         { key: 'fibro',    label: 'Fibro', days: s.fibro    },
@@ -3607,6 +3650,7 @@
       // Re-render all sections
       renderMealList(day);
       renderWater(day);
+      renderSteps(day);
       renderSleep(day);
       renderMeds(day);
       renderBP(day);
