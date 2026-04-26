@@ -1508,8 +1508,6 @@
     #dayScreen.past-view .add-meal-cta { display: none; }
     #dayScreen.past-view #logBpBtn { display: none; }
     #dayScreen.past-view #logSymptomsBtn { display: none; }
-    #dayScreen.past-view #saveStepsBtn { display: none; }
-    #dayScreen.past-view #stepsInput { pointer-events: none; opacity: 0.55; }
   </style>
 </head>
 <body>
@@ -1655,19 +1653,6 @@
         <div id="symptomsDisplay"></div>
       </section>
 
-      <!-- Steps section — hidden until feature flag on -->
-      <section class="section-card" id="stepsSection" style="display:none">
-        <div class="section-header">
-          <h3 class="section-title">Steps</h3>
-        </div>
-        <div class="steps-entry">
-          <input type="number" id="stepsInput" class="form-input"
-            inputmode="numeric" min="0" max="99999" placeholder="e.g. 8500" />
-          <button class="btn btn-ghost btn-sm" id="saveStepsBtn">Save</button>
-        </div>
-        <div id="stepsDisplay"></div>
-      </section>
-
       <!-- Treat day hint -->
       <div style="text-align:center;padding:0.25rem 0 0.5rem">
         <span style="font-size:0.78rem;color:var(--ink-soft);font-family:'Lora',serif;letter-spacing:0.02em">
@@ -1802,24 +1787,7 @@
 
       <div class="setting-section">
         <div class="setting-section-title">Optional features</div>
-        <div class="toggle-row">
-          <span class="toggle-label">Symptom log</span>
-          <label class="toggle" aria-label="Toggle symptom log">
-            <input type="checkbox" id="featureSymptoms" />
-            <span class="toggle-track"></span>
-            <span class="toggle-thumb"></span>
-          </label>
-        </div>
-        <p class="help">Back pain, urine colour, and dip notes — useful for nephrology check-ins.</p>
-        <div class="toggle-row" style="margin-top:0.75rem">
-          <span class="toggle-label">Steps log</span>
-          <label class="toggle" aria-label="Toggle steps log">
-            <input type="checkbox" id="featureSteps" />
-            <span class="toggle-track"></span>
-            <span class="toggle-thumb"></span>
-          </label>
-        </div>
-        <p class="help">A simple daily step count — no targets, no pressure.</p>
+        <p class="help">No additional optional features are enabled in this version.</p>
       </div>
 
       <div class="setting-section">
@@ -1858,7 +1826,7 @@
         <div class="form-field" style="margin-top:0.75rem">
           <label class="form-label" for="settingWorkerUrl">Worker URL</label>
           <input type="url" id="settingWorkerUrl" class="form-input"
-            placeholder="https://bloommum.derhamai19.workers.dev"
+            placeholder="https://bloom-worker.yourname.workers.dev"
             autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false" />
         </div>
         <div class="form-field">
@@ -1987,7 +1955,7 @@
      * ─────────────────────────────────────────────────────────────
      *
      * bloom_settings_v1
-     * { version, theme, features: { symptoms, steps },
+     * { version, theme, features: { symptoms },
      *   targets: { calories: { max }, protein_g: { max }, salt_g: { max }, water_ml: { min } },
      *   profile: { name, age, weight_kg, height_cm } }
      *
@@ -1995,8 +1963,8 @@
      * { date, isTreatDay, meals: [{ id, time, type, description, photoId,
      *     estimates: { calories, protein_g, salt_g }, aiMessage }],
      *   water_ml, meds_taken, bp: [{ time, systolic, diastolic }],
-     *   mood: { face, words }, steps, symptoms: { back_pain, urine_colour, urine_dip },
-     *   petal_bloom: { calories, protein, salt } }
+     *   mood: { face, words }, symptoms: { back_pain, urine_colour, urine_dip },
+     *   petal_bloom: { calories, meds, water, wake } }
      *   // water petal derived live: clamp(water_ml / 2000, 0, 1)
      *
      * bloom_meta_v1   { installed, lastMigration }
@@ -2029,24 +1997,13 @@
     const DEFAULT_SETTINGS = {
       version: 1,
       theme: 'auto',
-      features: { symptoms: false, steps: true },
+      features: { symptoms: false },
       targets: {
         calories: { max: 1500 },
-        steps:    { min: 2000 },
         water_ml: { min: 2000 }
       },
-      profile: { name: '', age: 32, weight_kg: 65.0, height_cm: 165 }
+      profile: { name: '', age: 59, weight_kg: 88.5, height_cm: 160 }
     };
-
-    /* ─── Date helpers ───────────────────────────────────── */
-    function isoToday() {
-      const d = new Date();
-      return [
-        d.getFullYear(),
-        String(d.getMonth() + 1).padStart(2, '0'),
-        String(d.getDate()).padStart(2, '0')
-      ].join('-');
-    }
 
     function isoDateMinus(n) {
       const d = new Date();
@@ -2117,7 +2074,11 @@
 
     /* ─── Settings ───────────────────────────────────────── */
     function loadSettings() {
-      return deepMerge(DEFAULT_SETTINGS, lsGet(STORAGE.settings, {}));
+      const settings = deepMerge(DEFAULT_SETTINGS, lsGet(STORAGE.settings, {}));
+      if (!settings.features) settings.features = { symptoms: false };
+      delete settings.features.steps;
+      settings.features.symptoms = false;
+      return settings;
     }
 
     function saveSettings(s) { lsSet(STORAGE.settings, s); }
@@ -2133,10 +2094,9 @@
         meds_taken: false,
         bp: [],
         mood: { mood: null, energy: null, pain: null },
-        steps: null,
         sleep: { asleepAt: '', wokeAt: '', wokeBy9am: false },
         symptoms: { back_pain: null, urine_colour: null, urine_dip: null },
-        petal_bloom: { calories: 0, steps: 0, water: 0, wake: 0 }
+        petal_bloom: { calories: 0, meds: 0, water: 0, wake: 0 }
       });
     }
 
@@ -2145,7 +2105,7 @@
     /* ─── Petal bloom (persisted, ceiling model) ─────────── */
     function recomputePetalBloom(day) {
       const t = loadSettings().targets;
-      const bloom = { calories: 0, steps: 0, water: 0, wake: 0 };
+      const bloom = { calories: 0, meds: 0, water: 0, wake: 0 };
       let totCal = 0;
 
       for (const meal of day.meals) {
@@ -2153,7 +2113,7 @@
       }
 
       bloom.calories = Math.min(1, Math.max(0, totCal / (t.calories.max || 1500)));
-      bloom.steps    = Math.min(1, Math.max(0, (day.steps || 0) / (t.steps.min || 2000)));
+      bloom.meds     = day.meds_taken ? 1 : 0;
       bloom.water    = Math.min(1, Math.max(0, (day.water_ml || 0) / (t.water_ml.min || 2000)));
       bloom.wake     = day.sleep?.wokeBy9am ? 1 : 0;
 
@@ -2196,7 +2156,6 @@
     /* ─── Feature flags ──────────────────────────────────── */
     function applyFeatureFlags(features) {
       document.getElementById('symptomsSection').style.display = features.symptoms ? '' : 'none';
-      document.getElementById('stepsSection').style.display    = features.steps    ? '' : 'none';
     }
 
     /* ─── Photo compression ──────────────────────────────── */
@@ -2660,15 +2619,11 @@
     let settingsSheetOpen = false;
     const settingsSheet = document.getElementById('settingsSheet');
     const themeInputs   = document.querySelectorAll('input[name="theme"]');
-    const featSymptoms  = document.getElementById('featureSymptoms');
-    const featSteps     = document.getElementById('featureSteps');
 
     function openSettings() {
       settingsSheetOpen = true;
       const s = loadSettings();
       themeInputs.forEach(i => { i.checked = i.value === s.theme; });
-      featSymptoms.checked = !!s.features.symptoms;
-      featSteps.checked    = !!s.features.steps;
       document.getElementById('treatCount7').textContent   = countTreatDays(7);
       document.getElementById('treatCount30').textContent  = countTreatDays(30);
       document.getElementById('flareCount7').textContent   = countFlareDays(7);
@@ -2699,7 +2654,6 @@
         ['Weight',   `${p.weight_kg} kg`],
         ['Height',   `${p.height_cm} cm`],
         ['Calories', `≤ ${t.calories.max} kcal`],
-        ['Steps',    `≥ ${t.steps.min} steps`],
         ['Water',    `≥ ${t.water_ml.min / 1000} L`],
         ['Wake by 9am', 'Checked when on time'],
       ];
@@ -2751,20 +2705,6 @@
         saveSettings(s);
         applyTheme(s.theme);
       });
-    });
-
-    featSymptoms.addEventListener('change', e => {
-      const s = loadSettings();
-      s.features.symptoms = e.target.checked;
-      saveSettings(s);
-      applyFeatureFlags(s.features);
-    });
-
-    featSteps.addEventListener('change', e => {
-      const s = loadSettings();
-      s.features.steps = e.target.checked;
-      saveSettings(s);
-      applyFeatureFlags(s.features);
     });
 
     document.getElementById('exportBtn').addEventListener('click', async () => {
@@ -2847,7 +2787,6 @@
         renderMood(today);
         renderStreak(today);
         renderSymptoms(today);
-        renderSteps(today);
         updateSunflowerSVG(today);
 
         statusEl.style.color = 'var(--sage)';
@@ -3022,26 +2961,26 @@
     // Map of goal keys to their DOM ids
     const SF_GOALS = [
       { key: 'calories', pathId: 'sfGoalCaloriesPath', veinId: 'sfGoalCaloriesVein', hlId: 'sfGoalCaloriesHighlight' },
-      { key: 'steps',    pathId: 'sfGoalProteinPath',  veinId: 'sfGoalProteinVein',  hlId: 'sfGoalProteinHighlight'  },
+      { key: 'meds',     pathId: 'sfGoalProteinPath',  veinId: 'sfGoalProteinVein',  hlId: 'sfGoalProteinHighlight'  },
       { key: 'water',    pathId: 'sfGoalWaterPath',    veinId: 'sfGoalWaterVein',    hlId: 'sfGoalWaterHighlight'    },
       { key: 'wake',     pathId: 'sfGoalSaltPath',     veinId: 'sfGoalSaltVein',     hlId: 'sfGoalSaltHighlight'     },
     ];
 
     function updateSunflowerSVG(day) {
       const t      = loadSettings().targets;
-      const pb     = day.petal_bloom || { calories: 0, protein: 0, salt: 0 };
+      const pb     = day.petal_bloom || { calories: 0, meds: 0, water: 0, wake: 0 };
       const waterB = Math.min(1, (day.water_ml || 0) / (t.water_ml.min || 2000));
       const meds   = !!day.meds_taken;
       const treat  = !!day.isTreatDay;
 
       // Bloom fractions by goal key (treat day = full bloom on everything)
       const blooms = treat
-        ? { calories: 1, protein: 1, water: 1, salt: 1 }
+        ? { calories: 1, meds: 1, water: 1, wake: 1 }
         : {
             calories: Math.max(0, Math.min(1, pb.calories || 0)),
-            protein:  Math.max(0, Math.min(1, pb.protein  || 0)),
-            water:    waterB,
-            salt:     Math.max(0, Math.min(1, pb.salt     || 0)),
+            meds:     Math.max(0, Math.min(1, pb.meds     || 0)),
+            water:    Math.max(0, Math.min(1, pb.water    || waterB)),
+            wake:     Math.max(0, Math.min(1, pb.wake     || 0)),
           };
 
       // Draw each goal petal via its scaled path
@@ -3136,7 +3075,7 @@
     function updateGoalLabels(day, t, treat) {
       const meals  = day.meals || [];
       const totCal  = meals.reduce((s, m) => s + (m.estimates?.calories  || 0), 0);
-      const steps   = day.steps != null ? day.steps : 0;
+      const medsTaken = day.meds_taken ? 'Yes' : 'No';
       const wL      = ((day.water_ml || 0) / 1000).toFixed(1);
       const tgtL    = ((t.water_ml.min || 2000) / 1000).toFixed(1);
       const wakeOk  = day.sleep?.wokeBy9am ? 'Yes' : 'No';
@@ -3151,8 +3090,8 @@
            t.calories.max.toLocaleString(), 'kcal');
 
       document.getElementById('goalLabelProtein').innerHTML =
-        mk('Steps', treat ? '—' : steps.toLocaleString(),
-           String(t.steps.min), 'steps');
+        mk('Meds', treat ? '—' : medsTaken,
+           'Yes', 'taken');
 
       document.getElementById('goalLabelWater').innerHTML =
         mk('Water', treat ? '—' : wL, tgtL, 'litres');
@@ -3416,14 +3355,11 @@
           return (r.meals?.length > 0)
               && r.meds_taken
               && (r.water_ml || 0) >= (t.water_ml.min || 2000)
-              && (r.steps || 0) >= (t.steps.min || 2000)
               && (r.sleep?.wokeBy9am)
               && d.cal <= (t.calories.max || Infinity);
         }),
         calories: computeStreak((r, t) =>
           (r.meals?.length > 0) && dayTotals(r).cal <= (t.calories.max || Infinity)),
-        steps:    computeStreak((r, t) =>
-          (r.steps || 0) >= (t.steps.min || 2000)),
         water:    computeStreak((r, t) =>
           (r.water_ml || 0) >= (t.water_ml.min || 2000)),
         meds:     computeStreak(r => !!r.meds_taken),
@@ -3456,7 +3392,6 @@
       // Five per-metric boxes
       const metrics = [
         { key: 'calories', label: 'Cal',   days: s.calories },
-        { key: 'steps',    label: 'Steps', days: s.steps    },
         { key: 'water',    label: 'H₂O',   days: s.water    },
         { key: 'meds',     label: 'Meds',  days: s.meds     },
         { key: 'fibro',    label: 'Fibro', days: s.fibro    },
@@ -3599,6 +3534,7 @@
       const wokeBy9am = document.getElementById('wokeBy9am').checked;
       const day = loadDay(isoToday());
       day.sleep = { asleepAt: asleepAt || '', wokeAt: wokeAt || '', wokeBy9am };
+      recomputePetalBloom(day);
       saveDay(day);
       renderSleep(day);
       renderStreak(day);
@@ -3616,23 +3552,6 @@
       updateSunflowerSVG(day);
     });
 
-    /* ─── Steps ───────────────────────────────────────────── */
-    function renderSteps(day) {
-      const input = document.getElementById('stepsInput');
-      const disp  = document.getElementById('stepsDisplay');
-      input.value = day.steps != null ? day.steps : '';
-      disp.innerHTML = day.steps != null
-        ? `<p style="font-family:'Fraunces',serif;font-size:1.15rem;color:var(--ink);margin:0.5rem 0 0">${day.steps.toLocaleString()} steps today</p>`
-        : '';
-    }
-
-    document.getElementById('saveStepsBtn').addEventListener('click', () => {
-      const v   = parseInt(document.getElementById('stepsInput').value, 10);
-      const day = loadDay(isoToday());
-      day.steps = isNaN(v) || v < 0 ? null : v;
-      saveDay(day);
-      renderSteps(day);
-    });
 
     /* ─── Service worker ─────────────────────────────────── */
     function registerServiceWorker() {
@@ -3690,7 +3609,6 @@
       renderMood(day);
       renderStreak(day);
       renderSymptoms(day);
-      renderSteps(day);
       updateSunflowerSVG(day);
     }
 
@@ -3713,5 +3631,6 @@
       if (viewOffset > 0) renderDay(viewOffset - 1);
     });
   </script>
+  <div class="app-version">Version 0.1</div>
 </body>
 </html>
