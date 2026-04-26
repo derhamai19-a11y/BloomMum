@@ -2015,6 +2015,10 @@
       ].join('-');
     }
 
+    function isoToday() {
+      return isoDateMinus(0);
+    }
+
     function formatToday() {
       return new Date().toLocaleDateString(undefined, {
         weekday: 'long', month: 'long', day: 'numeric'
