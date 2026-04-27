@@ -1985,11 +1985,7 @@
      */
 
     /* ─── Worker config ──────────────────────────────────── */
-    // ⚠️  REQUIRED: Replace both values below with your actual Cloudflare Worker
-    //     URL and shared token, otherwise AI estimation will never work.
-    //     The AI tab will show an error; use Manual entry as a fallback.
     const WORKER_URL   = 'https://bloommum.derhamai19.workers.dev';
-    const WORKER_TOKEN = 'APP_TOKEN';
 
     /* ─── Storage keys ───────────────────────────────────── */
     const STORAGE = {
@@ -2203,7 +2199,8 @@
     /* ─── Worker call ────────────────────────────────────── */
     async function callWorker(payload) {
       const url   = lsGet('bloom_worker_url',   null) || WORKER_URL;
-      const token = lsGet('bloom_worker_token', null) || WORKER_TOKEN;
+      const token = lsGet('bloom_worker_token', null);
+      if (!token) throw new Error('No token configured');
       const resp = await fetch(`${url}/estimate`, {
         method: 'POST',
         headers: {
@@ -2431,9 +2428,13 @@
       let result;
       try {
         result = await callWorker(payload);
-      } catch {
+      } catch (err) {
         setSubmitLoading(false);
-        showMealError("Couldn't reach the AI just now — tap Save meal to retry, or switch to Manual.");
+        showMealError(
+          err.message === 'No token configured'
+            ? 'AI not set up — open Settings and enter your Worker URL and token.'
+            : "Couldn't reach the AI just now — tap Save meal to retry, or switch to Manual."
+        );
         return;
       }
 
